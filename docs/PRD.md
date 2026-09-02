@@ -85,6 +85,25 @@ The app takes any target reference image and computes the real-time geometric de
 3. **Decoupled Smoothness:** Background ML inference (8–15Hz) must never block or stutter the 60/120fps viewfinder rendering and fluid gesture interactions.
 4. **Pristine Capture Fidelity:** Never re-compress or degrade captured photos. Capture is written at maximum sensor quality directly to Apple Photos (`PhotoKit`).
 5. **Graceful Degradation:** The coaching engine must always provide value; if a subject cannot be detected, it falls back to sensor-exact horizon leveling and rule-of-thirds scene cues.
+6. **Analysis Never Degrades Capture:** Real-time analysis may sacrifice resolution and representation for performance; final image capture may **never** sacrifice quality merely to simplify analysis. Analysis, preview, and capture are separate pipelines (see `ARCHITECTURE.md` §4.4 and `PRODUCT_SPEC.md` §1.8).
+
+### 5.1 Image Fidelity & Native Capture (Hard Product Requirement)
+
+This requirement is first-class and architectural. It ranks alongside the coaching engine itself, not below it.
+
+> **"Camsthetics must preserve the highest image quality available through Apple's supported third-party camera APIs. The app must not introduce unnecessary degradation to resolution, detail, color fidelity, dynamic range, HDR characteristics, metadata, orientation, stabilization, or other capture characteristics."**
+
+* **The composition/coaching functionality must not require compromising the final captured image.** If a coaching capability can only be delivered by degrading the capture, the coaching capability is the part that gets cut.
+* **Three separate pipelines:** ANALYSIS (Vision/CV, may be aggressively optimized), PREVIEW (responsiveness and accurate composition representation), and CAPTURE (highest-quality supported native photo path). They may share camera input, but processing performed for analysis or UI must never become the source of the final saved photograph.
+* **Never saved as the final photograph:** Vision frames, preview frames, downsampled analysis frames, unnecessarily converted RGB buffers, screenshots of the preview, or compressed intermediate representations.
+
+**Precise goal statement (no overclaiming):**
+
+> **"Use Apple's highest-quality supported third-party capture APIs and avoid introducing additional quality loss in Camsthetics."**
+
+Camsthetics does **not** claim to reproduce Apple's proprietary Camera.app computational photography pipeline bit-for-bit. Portions of Apple's first-party capture behaviour are not exposed to third-party apps through public API; those gaps are documented in `PRODUCT_SPEC.md` §1.8 "Known Platform Limitations" rather than papered over with marketing language.
+
+Full normative specification: `PRODUCT_SPEC.md` §1.8 (Group FIDELITY). Architectural enforcement: `ARCHITECTURE.md` §4.4. Decision records: `DECISIONS.md` ADR-009 through ADR-012.
 
 ---
 

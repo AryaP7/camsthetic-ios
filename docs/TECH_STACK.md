@@ -86,12 +86,32 @@ $$\text{Choice} \longrightarrow \text{Why} \longrightarrow \text{Alternatives Co
 
 ---
 
+### 2.9 Capture Output Format, Colour & Dynamic Range
+* **Choice:** **Runtime-queried native photo capture configuration — HEIF/HEVC preferred where supported, with capability discovery at session configuration time (`AVCapturePhotoOutput.availablePhotoCodecTypes`, `supportedPhotoPixelFormatTypes`, `maxPhotoDimensions`, active-format colour space / HDR support).**
+* **Why:** The image-fidelity requirement (`PRODUCT_SPEC.md` §1.8) demands the highest-quality *supported* representation for the device actually in the user's hand, not a lowest-common-denominator guess. HEIF/HEVC preserves more detail per byte than JPEG at equivalent size, carries wide-colour and depth/aux data, and is the native container of the modern iOS photo pipeline. Capability differences across iPhone generations and iOS versions are resolved by querying, never by assuming.
+* **Alternatives Considered:** Always-JPEG for maximum interoperability; always-RAW/ProRAW for maximum latitude; hard-coded per-device format tables.
+* **Why Rejected:** Always-JPEG defaults to a lossy 8-bit SDR container for convenience and discards wide-colour/HDR characteristics — explicitly prohibited by FIDELITY-06. Always-RAW is a **separate product capability** with its own storage, review, and validation implications (FIDELITY-06), not a default. Hard-coded device tables rot with each new iPhone and silently mis-configure unknown hardware.
+* **Consequences:** Capture format is a runtime decision with a documented policy and a per-capture log; adding RAW/ProRAW later is an explicit product feature with its own ADR rather than a flag flip. Analysis colour handling (SDR/greyscale) is entirely decoupled from this decision.
+
+---
+
+### 2.10 Analysis Buffer Format & Downsampling Strategy
+* **Choice:** **Native camera YUV (`420f`/`420v`) sample buffers delivered to `AVCaptureVideoDataOutput`, downsampled for Vision, with conversions performed only where an algorithm requires them — and never propagated back into the capture path.**
+* **Why:** Vision accepts `CVPixelBuffer` directly and performs its own internal preparation; requesting full-resolution BGRA purely for convenience burns bandwidth, memory, and thermal budget for no coaching benefit. Analysis is a *temporary processing input* (FIDELITY-02) and is free to be as small as the algorithms tolerate.
+* **Alternatives Considered:** Full-resolution BGRA video output shared by preview, analysis, and capture; a single converted RGB buffer reused as both analysis input and capture source.
+* **Why Rejected:** A shared converted buffer is precisely the failure mode the fidelity requirement exists to prevent — it makes the degraded analysis representation the source of the photograph (`camera YUV → RGB → resized RGB → JPEG → saved photo`). It also couples analysis tuning to capture quality, so a performance optimization would silently become an image-quality regression.
+* **Consequences:** Analysis resolution, pixel format, and frame rate can be tuned aggressively (including under thermal pressure, §5) with **zero** effect on captured photo dimensions, format, colour space, or metadata — a property that is directly testable (FIDELITY-02 acceptance criteria).
+
+---
+
 ## 3. Technology Matrix Summary
 
 | Architectural Subsystem | Chosen iOS Technology | Third-Party Dependencies |
 |---|---|---|
 | **Viewfinder & HUD UI** | SwiftUI + `AVCaptureVideoPreviewLayer` | None |
 | **Camera & Capture** | AVFoundation (`AVCaptureSession`) | None |
+| **Photo Capture Path** | `AVCapturePhotoOutput` — runtime-queried HEIF/HEVC, max photo dimensions, native colour/HDR | None |
+| **Analysis Frame Path** | `AVCaptureVideoDataOutput` — native YUV, downsampled, throttled (never a capture source) | None |
 | **Vision & AI Inference** | Apple Vision (`VNDetectHumanBodyPoseRequest`) | None |
 | **Motion Sensing** | CoreMotion (`CMMotionManager`) | None |
 | **Haptics** | CoreHaptics (`CHHapticEngine`) + `UIFeedbackGenerator` | None |

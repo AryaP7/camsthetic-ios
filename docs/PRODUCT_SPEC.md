@@ -161,6 +161,7 @@ $$\text{Score} = \operatorname{round}\left( 100 \cdot \frac{\sum (w_d \cdot c_d 
   * Captured using `AVCapturePhotoOutput` with `isHighResolutionPhotoEnabled = true` and `qualityPrioritization = .quality`.
   * Preserves full native sensor resolution, Apple Smart HDR / Deep Fusion pipeline, and complete EXIF metadata.
   * Direct non-destructive write to Apple Photos (`PhotoKit`).
+  * **Normative fidelity requirements — see §1.8 (Group FIDELITY).** §1.8 governs pipeline separation, pixel format, resolution, HDR/color, photo format, metadata, lens selection, and quality validation for everything in this section.
 
 ---
 
@@ -198,3 +199,184 @@ $$\text{Score} = \operatorname{round}\left( 100 \cdot \frac{\sum (w_d \cdot c_d 
 * **Zero Live Frame Storage:** Live analysis frames are processed in volatile memory buffers and discarded immediately. No live video is ever written to disk or transmitted over network.
 * **100% On-Device Coaching:** All pose, subject, tilt, and score computations run locally on the Apple Neural Engine.
 * **No Account Required:** Full core coaching functionality operates completely offline without user tracking.
+
+---
+
+### 1.8 Image Fidelity & Native Capture (Group FIDELITY)
+
+**Hard architectural requirement.** This group is first-class: it constrains every other group, and no feature in §1.1–§1.7 may be implemented in a way that violates it.
+
+> **"Camsthetics must preserve the highest image quality available through Apple's supported third-party camera APIs. The app must not introduce unnecessary degradation to resolution, detail, color fidelity, dynamic range, HDR characteristics, metadata, orientation, stabilization, or other capture characteristics."**
+
+The app's composition/coaching functionality must **not** require compromising the final captured image.
+
+**Governing rule (mandatory):**
+
+> **"Real-time analysis may sacrifice resolution and representation for performance; final image capture may not sacrifice quality merely to simplify analysis."**
+
+---
+
+#### Feature: Three-Pipeline Separation (FIDELITY-01)
+* **Purpose:** Guarantee that work done for coaching or UI can never become the source of the saved photograph.
+* **Definitions (these three terms are distinct throughout all specifications):**
+
+| Term | Definition | Quality Contract |
+|---|---|---|
+| **Analysis frame** | A temporary processing input derived from the video data output, delivered to Vision / the coaching engine. | Optimized for latency. Degradation is *expected and permitted*. |
+| **Preview frame** | The live viewfinder image presented to the user. | Optimized for responsiveness, latency, stable frame rate, correct orientation and aspect. |
+| **Captured photo** | The final photograph written to Apple Photos. | Highest-quality supported native photo path. No degradation permitted. |
+
+* **Requirements:**
+  1. The three pipelines may share the same `AVCaptureSession` camera input, but each owns its own output and its own representation.
+  2. **The analysis pipeline must never force the capture pipeline to use its degraded representation.** Analysis representations are temporary processing inputs; they are not the photograph.
+  3. If a lower-resolution or converted buffer is created for Vision/coaching, the original high-quality capture path remains independent of it.
+  4. Preview processing must not dictate the quality of the final captured image. No image conversion may be introduced *merely* to support the preview UI.
+  5. **The following must never be saved as the final photograph:** Vision frames, preview frames, downsampled analysis frames, unnecessarily converted RGB buffers, screenshots of the preview, compressed intermediate representations.
+  6. The final image must originate from the appropriate high-quality photo capture API (`AVCapturePhotoOutput`). A photograph is never reconstructed from processed video frames.
+* **Acceptance Criteria:**
+  * The saved asset's pixel dimensions, format, and metadata are traceable to the photo output, not to any video/analysis buffer.
+  * Disabling the analysis pipeline entirely produces a byte-comparable capture configuration (same dimensions, format, colour space, metadata fields).
+
+---
+
+#### Feature: Analysis Pipeline Latitude (FIDELITY-02)
+* **Purpose:** Give real-time coaching full freedom to optimize, inside a boundary that cannot leak into capture.
+* **The analysis pipeline may:** downsample frames; use lower-resolution representations; convert pixel formats when required; use Vision, Accelerate, or Metal; perform computer-vision processing; discard frames; process asynchronously; and apply frame-rate throttling (per §1.2 and `ARCHITECTURE.md` §4.1, sampled at 8–15Hz with latest-only backpressure).
+* **The analysis pipeline may not:** alter the capture session's photo configuration, reduce capture resolution, change capture colour space or format, disable a native capture capability, or supply the buffer that becomes the saved photograph.
+* **Acceptance Criteria:** Changing analysis resolution, throttle rate, or pixel format produces **zero** change in captured photo dimensions, format, colour space, or metadata.
+
+---
+
+#### Feature: Pixel Format & Conversion Policy (FIDELITY-03)
+* **Purpose:** Prevent silent lossy conversion chains.
+* **Prohibited when the conversion exists only to serve analysis:**
+
+```
+camera YUV → RGB → resized RGB → JPEG → saved photo        ❌ PROHIBITED
+```
+
+* **Requirements:**
+  1. Use the native camera/output formats wherever practical.
+  2. If conversion is required for Vision or another algorithm: create a **separate** processing representation; preserve the original capture path; document why the conversion is necessary; never feed the converted representation back into capture.
+  3. **Any lossy conversion must be explicitly justified** in code comments and in `DECISIONS.md`.
+* **Acceptance Criteria:** Every format conversion in the codebase is attributable to either (a) the analysis pipeline, or (b) an explicitly documented and justified capture-path decision.
+
+---
+
+#### Feature: Resolution Policy (FIDELITY-04)
+* **Purpose:** Keep analysis resolution and capture resolution independent concerns.
+* **Requirement:** **Never reduce capture resolution merely because analysis operates at a lower resolution.**
+
+```
+HIGH-QUALITY CAMERA CAPTURE          CAMERA FRAME
+        │                                  │
+        ▼                             downsample
+     capture                               │
+                                           ▼
+                                   Vision / analysis
+                                           │
+                                           ▼
+                                   coaching decision
+```
+
+* The analysis resolution may be aggressively optimized for performance without affecting capture resolution.
+* Session preset / format selection must be chosen so that the photo output retains the device's maximum supported photo dimensions; the video data output is configured independently for analysis.
+* **Acceptance Criteria:** Captured photo dimensions equal the maximum supported photo dimensions for the selected device, format, and product aspect ratio setting (§1.5).
+
+---
+
+#### Feature: HDR, Wide Colour & Dynamic Range (FIDELITY-05)
+* **Purpose:** Prevent an SDR/RGB analysis assumption from flattening a high-dynamic-range capture.
+* **The architecture must explicitly account for:** HDR; wide colour; colour space; extended dynamic range where supported; HEIF/HEVC where appropriate; device-specific capture capabilities.
+* **Requirements:**
+  1. Do not tone-map, flatten, or convert a high-dynamic-range capture into a lower-quality representation merely because the analysis pipeline uses SDR/RGB imagery.
+  2. **Analysis colour representation and final capture representation are separate concerns.** The analysis pipeline may work in SDR sRGB/greyscale indefinitely; this has no bearing on capture.
+  3. **Do not make assumptions about device capabilities.** Query and configure capabilities at runtime (device/format support, supported photo dimensions, supported codecs, HDR/EDR support, colour space availability).
+* **Acceptance Criteria:** On a device supporting HDR photo capture, the saved asset retains its HDR/wide-colour characteristics; the analysis path's colour handling is not observable in the saved asset.
+
+---
+
+#### Feature: Photo Format Selection (FIDELITY-06)
+* **Purpose:** Select an appropriate *native* photo representation rather than a convenient one.
+* **Selection inputs:** device capabilities; iOS version; product requirements; quality requirements; storage considerations.
+* **Requirements:**
+  1. **Do not default to JPEG simply because it is convenient.** HEIF and other Apple-supported high-quality formats are evaluated on merit (see `TECH_STACK.md` §2.9).
+  2. Format availability is queried at runtime; there is no hard-coded format assumption.
+  3. **RAW / ProRAW, if ever introduced, is a separate explicit product capability** — it is *not* assumed equivalent to, or a drop-in replacement for, the normal native photo pipeline. It carries its own capture configuration, storage footprint, review behaviour, and validation matrix. (v1.0 scope remains the native processed-photo path; see `PRD.md` §6 roadmap.)
+* **Acceptance Criteria:** The chosen container/codec is logged per capture and matches the documented policy for that device and iOS version.
+
+---
+
+#### Feature: Metadata Preservation (FIDELITY-07)
+* **Purpose:** Deliver a photograph that behaves like a native one inside Apple Photos.
+* **Requirement:** Do not unnecessarily strip or alter photo metadata. Preserve, where available and appropriate: orientation; capture information (exposure, ISO, shutter, timestamps); colour information (ICC/colour space); location metadata **when the user has authorized it**; camera/lens information; other supported photographic metadata.
+* **Privacy constraint:** Metadata handling must respect Apple's privacy/security APIs and user permissions. Location is embedded only under an existing, granted authorization — never inferred, cached, or re-attached to bypass a permission state. This is consistent with §1.7 Privacy Guarantees.
+* **Acceptance Criteria:** EXIF/TIFF/Exif-Aux fields present on a native Camera.app capture of the same scene are present on the Camsthetics capture, except fields Apple does not expose to third-party capture.
+
+---
+
+#### Feature: Camera & Lens Selection Policy (FIDELITY-08)
+* **Purpose:** Make device/lens choice deliberate, documented, and free of surprise quality changes.
+* **Requirements:**
+  1. Do not hard-code assumptions about a single camera. Account for the multiple camera configurations across iPhone generations (single, dual, dual-wide, triple, and future arrangements).
+  2. Camera/lens selection must be deliberate and documented (see `DECISIONS.md` ADR-011).
+  3. **Do not silently switch lenses or camera devices in a way that produces unexpected image-quality changes.** Constituent-device switching inside a virtual multi-camera device is acceptable only where it matches user-visible zoom intent and is documented.
+  4. Automatic selection behaviour must consider: requested zoom; available camera devices; focal length; stabilization; low-light behaviour; device capabilities; continuity of the preview/capture experience.
+* **Interaction with §1.5:** The lens capsule (`.5`, `1x`, `2`, `3x`) is the user-visible expression of this policy; the mapping from each pill to a physical device/zoom factor is device-dependent and resolved at runtime.
+* **Acceptance Criteria:** For each supported device generation, the pill → device/zoom mapping is documented, and a lens switch never changes capture format, colour space, or maximum photo dimensions without the user-visible zoom having changed.
+
+---
+
+#### Feature: Native Capability Preservation (FIDELITY-09)
+* **Purpose:** Keep Apple's capture intelligence switched on.
+* **Requirement:** Do not unnecessarily disable Apple's supported capture features. Preserve appropriate native capabilities for: stabilization; autofocus; exposure; HDR; low-light capture; computational photography.
+* **Disable-with-justification rule:** If any native capability is intentionally disabled, the following must be documented in `DECISIONS.md`:
+  1. **why** it is disabled;
+  2. **what quality tradeoff** it introduces;
+  3. **why the product requires** that tradeoff.
+* **No quality-affecting camera configuration may be introduced casually.** Configuration that touches capture quality requires a decision record, not a commit message.
+* **Acceptance Criteria:** A reviewer can enumerate every non-default capture setting and find a matching justification.
+
+---
+
+#### Feature: Preview / Capture Consistency (FIDELITY-10)
+* **Purpose:** The user must receive composition guidance based on what they are actually framing.
+* **Prohibited outcome:**
+  > *"The coaching system says the composition is correct, but the saved photograph has a materially different crop or framing."*
+* **Phase 2/3 must explicitly validate:** preview aspect ratio; sensor/capture aspect ratio; crop behaviour; orientation; front/back camera differences (including mirroring); field-of-view differences; stabilization crop where applicable.
+* **Coordinate-system requirement:** The composition engine's normalized coordinate system must remain consistent with the **actual captured image**. The engine (Phase 1) is geometry-pure and unchanged by this requirement; the services layer is responsible for supplying `CompositionParams` already referenced to capture geometry, and for reconciling any preview-vs-capture crop or FOV difference before normalization (§1.2).
+* **Acceptance Criteria:**
+  * A capture taken at $\ge 85\%$ match score has the coached subject anchor within the same normalized tolerance band in the *saved photograph* as reported in the live HUD.
+  * Front-camera captures maintain the same relationship (mirroring handled explicitly, not incidentally).
+
+---
+
+#### Feature: Image-Quality Regression Validation (FIDELITY-11)
+* **Purpose:** Establish a repeatable image-quality validation strategy before the camera implementation is declared complete.
+* **Device-first requirement:** Testing must be performed on **physical iPhones**. **The Simulator must not be used for camera-quality validation**, and no Simulator-based camera testing is to be introduced into the implementation plan.
+* **Minimum validation matrix (where available):** **iPhone 14**, **iPhone 16**.
+* **Method:** Compare Camsthetics captures against the highest-quality appropriate capture path available through Apple's native APIs, same scene, same lighting, same lens/zoom, back-to-back.
+* **Evaluate:** resolution; detail; sharpness; noise; dynamic range; highlight retention; shadow detail; colour; HDR behaviour; field of view; crop; orientation; stabilization; metadata; file format; file size; capture latency.
+* **Honesty requirement:** **Do not claim "native-quality" merely because the image looks acceptable.** Document measurable differences where practical (dimensions, format, byte size, metadata diff, and measured latency at minimum).
+* **Acceptance Criteria:** A written comparison record exists per device and per evaluated dimension, with any deviation either fixed or explicitly accepted with rationale.
+
+---
+
+#### Known Platform Limitations (Honest Claims)
+
+Apple's first-party Camera app uses proprietary capture and processing behaviour that is not fully exposed to third-party applications. Camsthetics therefore makes the following **precise** claim, and no stronger one:
+
+> **"Use Apple's highest-quality supported third-party capture APIs and avoid introducing additional quality loss in Camsthetics."**
+
+Areas where public API cannot guarantee equivalence with Apple's Camera.app (to be re-verified on device during Phase 2.0, not assumed):
+
+| Area | Nature of the limitation |
+|---|---|
+| **Computational photography stages** | Smart HDR / Deep Fusion-class processing is applied by the system according to its own conditions and quality-prioritization hints. Third-party apps request quality prioritization; they do not drive the pipeline directly, and cannot force a specific stage to run. |
+| **Night mode / long multi-frame low-light capture** | Not exposed as a directly controllable third-party capability equivalent to Camera.app's user-facing Night mode control. |
+| **Photographic Styles and first-party tuning** | Apple's Camera.app rendering intent and per-device tuning are not guaranteed to be available or reproducible through public capture APIs. |
+| **Zero-shutter-lag / responsive-capture behaviour** | Availability and effect are device-, format-, and iOS-version-dependent; these are opt-in properties whose support must be queried at runtime. |
+| **Maximum photo dimensions (e.g. 48MP-class sensors)** | Availability depends on device, active format, selected codec, and iOS version; must be queried and configured at runtime rather than assumed. |
+| **Stabilization crop and preview/capture FOV** | The relationship between preview FOV and final capture FOV varies by mode and stabilization state; it must be measured per device rather than assumed to be identity (see FIDELITY-10). |
+
+**Camsthetics does not claim to reproduce Apple's proprietary Camera.app computational photography pipeline bit-for-bit.** Where a gap is measured, it is documented (FIDELITY-11), not marketed away.
