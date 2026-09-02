@@ -106,11 +106,20 @@ public struct CoachingEngine: Equatable, Sendable {
             useZoomFallback: useZoomFallback
         )
 
-        // If tier is PARTIAL, surface "Find your subject" prompt alongside active cues if space permits (PRODUCT_SPEC.md 1.4.2)
-        if activeTier == .partial && !surfaced.contains(.findSubject) {
-            if surfaced.count < 2 {
-                surfaced.append(.findSubject)
+        // If tier is PARTIAL the live subject is missing: surface "Tilt active + Find your subject"
+        // (PRODUCT_SPEC.md 1.4.2). Tilt is the only dimension measurable without a live subject, so an
+        // active tilt cue keeps its slot and is never replaced by the prompt; any residual subject-dependent
+        // cue (which can outlive the 5-frame tier transition) is dropped so it cannot crowd out the prompt
+        // or collide with `.findSubject` on the lateral dimension.
+        if activeTier == .partial {
+            var partialSurfaced = [CoachingInstruction]()
+            if let tiltCue = surfaced.first(where: { $0.dimension == .tilt }) {
+                partialSurfaced.append(tiltCue)
             }
+            if !partialSurfaced.contains(.findSubject) {
+                partialSurfaced.append(.findSubject)
+            }
+            surfaced = Array(partialSurfaced.prefix(AntiFlickerFilter.maxSurfacedInstructions))
         }
 
         // Step 5: Gaussian Match Scoring (PRODUCT_SPEC.md 1.4.1)

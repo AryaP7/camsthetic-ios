@@ -127,50 +127,58 @@ public struct AntiFlickerFilter: Equatable, Sendable {
         // Step 3: Prioritize active instructions strictly: Tilt -> Lateral -> Distance -> Height -> Zoom
         let prioritized = PriorityMapper.prioritize(activeInstructions)
 
-        // Step 4: Manage Dwell Timer slots
-        var surfaced = [CoachingInstruction]()
+        // Step 4: Manage Dwell Timer slots.
+        //
+        // Slot assignment runs in two passes so that a single coaching dimension can never occupy both
+        // surfaced slots (which previously happened when slot 0 was dwell-locked on a lower-priority cue
+        // and a higher-priority cue arrived: the lower-priority cue was held in slot 0 *and* re-assigned
+        // to slot 1, silently swallowing the higher-priority cue during deduplication).
+        //
+        // Pass A: every slot still inside its 700ms dwell window keeps its cue, refreshed with the latest
+        //         parameters for that same dimension (continuous numerical refinement).
+        // Pass B: the remaining slots receive the highest-priority instructions not already claimed,
+        //         in strict priority order; slots with nothing left to show are cleared.
+        let slotCount = Self.maxSurfacedInstructions
+        var assigned = [CoachingInstruction?](repeating: nil, count: slotCount)
+        var claimedDimensions = Set<CoachingDimension>()
 
-        for slotIndex in 0..<Self.maxSurfacedInstructions {
-            let currentInSlot = dwellTimer.currentInstruction(slot: slotIndex)
+        // Pass A: honour dwell locks.
+        for slotIndex in 0..<slotCount {
+            guard let current = dwellTimer.currentInstruction(slot: slotIndex) else { continue }
+            // A dimension already claimed by an earlier slot must not be duplicated: release this slot.
+            guard !claimedDimensions.contains(current.dimension) else { continue }
+            // Dimension has exited: the slot is free for replacement.
+            guard let latest = prioritized.first(where: { $0.dimension == current.dimension }) else { continue }
+            // Dwell time has elapsed: the slot is free for a higher-priority cue.
+            guard !dwellTimer.canReplace(slot: slotIndex, currentTimestamp: timestamp) else { continue }
 
-            if slotIndex < prioritized.count {
-                let desiredInstruction = prioritized[slotIndex]
+            dwellTimer.update(slot: slotIndex, instruction: latest, currentTimestamp: timestamp)
+            assigned[slotIndex] = latest
+            claimedDimensions.insert(latest.dimension)
+        }
 
-                if let current = currentInSlot {
-                    // If the desired instruction is for the same dimension, update it immediately (e.g. angle update)
-                    if current.dimension == desiredInstruction.dimension {
-                        dwellTimer.update(slot: slotIndex, instruction: desiredInstruction, currentTimestamp: timestamp)
-                        surfaced.append(desiredInstruction)
-                    } else if !activeInstructions.contains(where: { $0.dimension == current.dimension }) {
-                        // Current dimension has exited: replace immediately
-                        dwellTimer.update(slot: slotIndex, instruction: desiredInstruction, currentTimestamp: timestamp)
-                        surfaced.append(desiredInstruction)
-                    } else if dwellTimer.canReplace(slot: slotIndex, currentTimestamp: timestamp) {
-                        // Dwell time has elapsed: allow higher priority replacement
-                        dwellTimer.update(slot: slotIndex, instruction: desiredInstruction, currentTimestamp: timestamp)
-                        surfaced.append(desiredInstruction)
-                    } else {
-                        // Hold current instruction until dwell time completes
-                        surfaced.append(current)
-                    }
-                } else {
-                    // Empty slot: surface new instruction immediately
-                    dwellTimer.update(slot: slotIndex, instruction: desiredInstruction, currentTimestamp: timestamp)
-                    surfaced.append(desiredInstruction)
-                }
+        // Pass B: fill free slots with the highest-priority unclaimed instructions.
+        var queue = [CoachingInstruction]()
+        var queuedDimensions = claimedDimensions
+        for instruction in prioritized where !queuedDimensions.contains(instruction.dimension) {
+            queuedDimensions.insert(instruction.dimension)
+            queue.append(instruction)
+        }
+
+        var queueIndex = 0
+        for slotIndex in 0..<slotCount where assigned[slotIndex] == nil {
+            if queueIndex < queue.count {
+                let desired = queue[queueIndex]
+                queueIndex += 1
+                dwellTimer.update(slot: slotIndex, instruction: desired, currentTimestamp: timestamp)
+                assigned[slotIndex] = desired
+                claimedDimensions.insert(desired.dimension)
             } else {
-                // No candidate for this slot
-                if let current = currentInSlot {
-                    if !activeInstructions.contains(where: { $0.dimension == current.dimension }) {
-                        dwellTimer.clear(slot: slotIndex)
-                    } else if dwellTimer.canReplace(slot: slotIndex, currentTimestamp: timestamp) {
-                        dwellTimer.clear(slot: slotIndex)
-                    } else {
-                        surfaced.append(current)
-                    }
-                }
+                dwellTimer.clear(slot: slotIndex)
             }
         }
+
+        let surfaced = assigned.compactMap { $0 }
 
         // Deduplicate surfaced output so each dimension appears at most once
         var uniqueSurfaced = [CoachingInstruction]()
