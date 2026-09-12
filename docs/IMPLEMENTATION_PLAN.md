@@ -3,6 +3,7 @@
 **Document Version:** 1.0  
 **Status:** Authoritative Foundation  
 **Companion Documents:** `PRD.md`, `PRODUCT_SPEC.md`, `ARCHITECTURE.md`, `TECH_STACK.md`
+**Required Reading:** `OPEN_OPTIMIZATIONS.md` — live list of unpatched perf/hardware-ceiling findings. Read and respect it while it exists; delete it once all items are handled.
 
 ---
 
@@ -175,3 +176,12 @@ Phase 7: Haptics, Accessibility & Polish ──► (CoreHaptics, VoiceOver, App 
   * Accessibility Audit with VoiceOver navigating end-to-end coaching session.
   * 10-minute continuous coaching thermal and battery test on physical iPhone.
 * **Exit Criterion:** 100% criteria met across PRD, Product Spec, and Design System; ready for TestFlight / App Store submission.
+
+---
+
+### Phase 8 (Future — NOT Started): Camsthetics Decision Engine & MotionShoot
+* **Status:** Roadmap registration only. No code, UI, prototype, or test exists or should exist for this phase yet. Nothing in Phases 1–7 above is affected or blocked by this entry.
+* **Objective:** Apply the product objective recorded in `PRD.md` §5.2 / `DECISIONS.md` ADR-014 ("Apple's pipeline is the baseline, not the ceiling") to build a Camsthetics Decision Engine, then its first concrete application: **MotionShoot** ("Intelligent Photoshoot Mode") — analyzing a short video for meaningfully distinct, high-quality candidate moments and producing a curated still-photo set. Full product framing, UX flow, and dependency chain: `CAMERA_DECISION_RESEARCH.md` §12.
+* **Dependencies (in order):** Camera fidelity foundation (Phase 2.0/2 — done) → a future video capture pipeline (not started) → Analysis/Vision (Phase 3 — built, not yet device-verified) → the Camsthetics Decision Engine (not started) → MotionShoot → intelligent frame selection → an image-quality/rendering pipeline.
+* **Explicitly out of scope until this phase is deliberately started:** any `AVFoundation`/Vision code, `CameraService` changes, UI, prototypes, or tests for MotionShoot or the Decision Engine; any claim that Camsthetics outperforms Apple's native Camera without controlled, physical-device, same-conditions measurement (ADR-012/ADR-013 evidentiary standard).
+* **Exit Criterion for even starting this phase:** Phases 1–7 complete and the Decision Engine's own scoping/plan approved separately — this entry is a placeholder, not a scoped plan.
