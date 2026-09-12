@@ -83,7 +83,7 @@ The app takes any target reference image and computes the real-time geometric de
 1. **Physical, Actionable Guidance:** Coaching copy must always be physical and human ("Step back", "Lower phone", "Rotate right 3°"), never abstract coordinate numbers.
 2. **Never Overload the Viewfinder:** Show at most 1–2 high-priority movement cues at any time. The camera must remain a viewfinder, not a cluttered cockpit HUD.
 3. **Decoupled Smoothness:** Background ML inference (8–15Hz) must never block or stutter the 60/120fps viewfinder rendering and fluid gesture interactions.
-4. **Pristine Capture Fidelity:** Never re-compress or degrade captured photos. Capture is written at maximum sensor quality directly to Apple Photos (`PhotoKit`).
+4. **Pristine Capture Fidelity (hard safety floor):** Never re-compress or degrade captured photos. Capture is written at maximum sensor quality directly to Apple Photos (`PhotoKit`). This floor is non-negotiable and is not superseded by §5.2 below — it is the invariant §5.2's product objective is built on top of.
 5. **Graceful Degradation:** The coaching engine must always provide value; if a subject cannot be detected, it falls back to sensor-exact horizon leveling and rule-of-thirds scene cues.
 6. **Analysis Never Degrades Capture:** Real-time analysis may sacrifice resolution and representation for performance; final image capture may **never** sacrifice quality merely to simplify analysis. Analysis, preview, and capture are separate pipelines (see `ARCHITECTURE.md` §4.4 and `PRODUCT_SPEC.md` §1.8).
 
@@ -104,6 +104,23 @@ This requirement is first-class and architectural. It ranks alongside the coachi
 Camsthetics does **not** claim to reproduce Apple's proprietary Camera.app computational photography pipeline bit-for-bit. Portions of Apple's first-party capture behaviour are not exposed to third-party apps through public API; those gaps are documented in `PRODUCT_SPEC.md` §1.8 "Known Platform Limitations" rather than papered over with marketing language.
 
 Full normative specification: `PRODUCT_SPEC.md` §1.8 (Group FIDELITY). Architectural enforcement: `ARCHITECTURE.md` §4.4. Decision records: `DECISIONS.md` ADR-009 through ADR-012.
+
+### 5.2 Baseline, Not Ceiling — The Photographic Outcome Objective (Future Scope)
+
+§5.1 establishes the hard safety floor: Camsthetics must never fall below Apple's native capture quality. This section states the objective layered on top of that floor, decided in `DECISIONS.md` ADR-014.
+
+> **Apple's native Camera behavior is the BASELINE, not the CEILING.** "No degradation" remains a hard safety baseline; "improve upon the baseline" is the product objective.
+
+Camsthetics should eventually optimize not only for capture fidelity, but for **photographic outcome** — using scene understanding, camera decisions, timing, and image selection to produce the best practical photographs and videos available from the device's hardware and public iOS camera APIs. Concretely: Apple-quality computational capture, plus Camsthetics-specific composition intelligence, plus Camsthetics' own image rendering — not a copy of Apple's proprietary pipeline, and not a regression from it either.
+
+* **For every important camera-quality decision, ask:** (1) what does Apple's public camera stack provide, (2) what does the native Camera app appear to optimize for, (3) what can Camsthetics control through public iOS APIs, (4) can Camsthetics make a better decision for this specific photographic/videographic objective, and (5) can the improvement be objectively demonstrated. A change is pursued only when its benefits outweigh its tradeoffs across the real quality dimensions (detail, sharpness, motion clarity, noise, dynamic range, highlight/shadow preservation, exposure/focus accuracy, color accuracy, skin rendering, local contrast, artifacting, temporal consistency, stabilization, composition, subject quality, capture timing, aesthetic quality, file/metadata integrity) — never by file size, resolution number, or bitrate as a proxy for quality.
+* **Never assume Apple is optimal.** Apple's implementation may be highly optimized for Apple's objectives; Camsthetics can have different objectives and make different higher-level decisions. Reject the reasoning "Apple does it this way, therefore it is correct" in favor of "Apple does it this way — understand why, treat it as the baseline, then evaluate whether Camsthetics can legitimately do better."
+* **Stay within the public API boundary.** No reproducing or bypassing Apple's private ISP, computational-photography, or system-only functionality — only what third-party apps can legitimately do with the same public capabilities, built into superior decision-making, timing, selection, and rendering.
+* **Preserve information before improving it.** Distinguish capture quality, decision quality, processing/rendering quality, and user-perceived aesthetic quality. Never sacrifice captured information merely to produce a prettier result unless the tradeoff is intentional, measurable, and justified: capture the highest-quality source available → preserve all useful information → make better capture decisions → apply specialized Camsthetics processing → produce the best final result.
+* **Measure against native Camera, don't assert.** Compare under matched conditions (device, lens, subject, framing, lighting, focus scenario, exposure scenario, motion) before claiming Camsthetics is "better than Apple." Don't reject an optimization merely because Apple's own app doesn't use it, either — measure it.
+* **The future Camsthetics Decision Engine** (evaluating scene, subject, composition, lighting, motion, focus confidence, exposure, dynamic-range risk, lens suitability, capture timing, video quality, and desired aesthetic) is the mechanism this objective is built toward, rather than manually imitating Apple's camera decisions. The same principle extends to video: Apple's native video mode is not assumed to be the ceiling for a third-party app either — see the future MotionShoot investigation scope in `CAMERA_DECISION_RESEARCH.md` §12 and `IMPLEMENTATION_PLAN.md` Phase 8 for the concrete, currently-unstarted application of this objective.
+
+This section is a statement of product direction and decision-making discipline, not an implementation authorization — see `IMPLEMENTATION_PLAN.md` Phase 8 for what remains explicitly future/not-started.
 
 ---
 
@@ -136,6 +153,11 @@ Full normative specification: `PRODUCT_SPEC.md` §1.8 (Group FIDELITY). Architec
 │  • Multi-Subject Group Composition Detection                                │
 │  • Custom User-Created Pose Packs & Community Sharing                       │
 │  • ProRAW 48MP Burst Best-Shot AI Selector                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Future / Not Started — Camsthetics Decision Engine                        │
+│  • MotionShoot ("Intelligent Photoshoot Mode") — video-to-curated-photoshoot│
+│    frame selection; see §5.2, `CAMERA_DECISION_RESEARCH.md` §12,           │
+│    `IMPLEMENTATION_PLAN.md` Phase 8                                        │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 

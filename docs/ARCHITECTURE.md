@@ -3,6 +3,7 @@
 **Document Version:** 1.0  
 **Status:** Authoritative Foundation  
 **Companion Documents:** `PRD.md`, `PRODUCT_SPEC.md`, `TECH_STACK.md`
+**Required Reading:** `OPEN_OPTIMIZATIONS.md` — live list of unpatched perf/hardware-ceiling findings. Read and respect it while it exists; delete it once all items are handled.
 
 ---
 
@@ -14,6 +15,8 @@ The Camsthetics iOS architecture is engineered from first principles around four
 2. **Asynchronously Decoupled Pipelines:** Viewfinder rendering ($60\text{–}120\text{Hz}$ ProMotion), sensor gravity polling ($60\text{–}100\text{Hz}$), and machine learning frame analysis ($8\text{–}15\text{Hz}$) run on independent, asynchronous execution contexts. Heavy inference never drops viewfinder frames.
 3. **Unidirectional Data Flow (UDF):** All UI layers observe immutable state streams emitted by domain coordinators. State transitions are predictable, reproducible, and testable via state-replay traces.
 4. **Image Fidelity Pipeline Separation:** The **analysis**, **preview**, and **capture** pipelines are architecturally distinct. Real-time analysis may sacrifice resolution and representation for performance; **final image capture may not sacrifice quality merely to simplify analysis**. Processing performed for analysis or UI must never become the source of the final saved photograph. This commitment is normative and is specified in §4.4 and `PRODUCT_SPEC.md` §1.8 (Group FIDELITY).
+
+> **Note (product objective, not a fifth architectural commitment):** commitment 4 above is the enforcement mechanism for a hard safety floor — Camsthetics capture quality never falls below what Apple's native path would produce. `PRD.md` §5.2 / `DECISIONS.md` ADR-014 layer a separate, additive product objective on top of that floor: Apple's native pipeline is the *baseline* to measure Camsthetics decisions against, not the ceiling of what Camsthetics is allowed to achieve. That objective does not relax commitment 4 — any future Decision Engine or MotionShoot work (future/not-started; see `CAMERA_DECISION_RESEARCH.md` §12 and `IMPLEMENTATION_PLAN.md` Phase 8) must still satisfy the pipeline-separation invariant above.
 
 ---
 
